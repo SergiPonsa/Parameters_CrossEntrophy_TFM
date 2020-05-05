@@ -15,7 +15,7 @@ class env_pybullet_kin_gen3:
 class env_pybullet_kin_gen3() :
 
     def __init__(self,visual=True,Excel_path_Okay = "./Original_Mujoco_Training1_averageconverted.xlsx",\
-                    experiment = "Training1",repeats = 10):
+                    experiment = "Training1",repeats = 3):
         self.visual = visual
         self.experiment = experiment
         self.repeats = repeats
@@ -27,6 +27,12 @@ class env_pybullet_kin_gen3() :
             p.connect()
         p.setGravity(0.0, 0.0, -9.81)
         self.robot = KinovaGen3(robot_urdf="../Simulation_Pybullet/models/urdf/JACO3_URDF_V11.urdf")
+
+        self.robot.save_database = False
+
+        #self.init_state_id = p.saveState()
+
+
 
         print("hola")
         #Get dynamics info
@@ -97,9 +103,10 @@ class env_pybullet_kin_gen3() :
 
         #Has to exist in the data frame , and be equal to the column name
         #The action must be introduced in the same order, and as many values as joints are expected
-        self.parameters_to_modify = ["mass"]
+
 
         self.observation_space = 1
+        self.parameters_to_modify = ["mass"]
         self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints
 
         self.df_Okay = self.create_df_from_Excel(Excel_path_Okay)
@@ -113,6 +120,32 @@ class env_pybullet_kin_gen3() :
         df = df.iloc[:,1:]
         return df
 
+    def action_original(self):
+        action_original = []
+        for parameter in self.parameters_to_modify:
+            action_original= action_original + list(self.original_parameters_df[parameter])
+        return action_original
+
+    def action_modified(self):
+        action_original = []
+        for parameter in self.parameters_to_modify:
+            action_original= action_original + list(self.modified_parameters_df[parameter])
+        return action_original
+
+    def update_parameters_to_modify(self,parameters_to_modify):
+        for parameter in parameters_to_modify:
+            if( parameter in list(self.original_parameters_df.columns) ):
+                print(parameter+ " okey")
+            else:
+                    print("One or more parameters selected are not in the possible ones to modify")
+                    print("Possibles to modify")
+                    print(list(self.original_parameters_df.columns))
+                    return
+        self.parameters_to_modify = parameters_to_modify
+        self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints
+
+
+
     def reset(self):
         p.disconnect() #disconnect pybullet
         if (self.visual == True):
@@ -125,7 +158,12 @@ class env_pybullet_kin_gen3() :
 
     def step(self,action):
         #Check the length it's right
-        if( len(list(action)!=self.parameters_to_modify*self.robot.number_robot_control_joints) ):
+        #print("Hola")
+        #print(list(action))
+        #time.sleep(10)
+        #print( len(list(action)) )
+        #print(len(self.parameters_to_modify)*self.robot.number_robot_control_joints)
+        if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints):
             print("The action has not the right length , with the parameters chossen to modify")
         #I abstract the data again to individual variables
         parameters_value = np.split(action,len(self.parameters_to_modify))
@@ -145,28 +183,42 @@ class env_pybullet_kin_gen3() :
         aux = aux.reshape(1,aux.size)
 
         inertia = list(list(aux).pop())
+        parameters_values = list(self.modified_parameters_df["mass"]) +\
+                            list(self.modified_parameters_df["damping"])+inertia
+        #print(self.modified_parameters_df)
+        #print(parameters_values)
 
+        #Start allways in the same state
+        #p.restoreState(stateId=self.init_state_id)
+        """
+        """
         self.robot.modify_robot_pybullet(self.robot.robot_control_joints,\
                                         ["mass","damping","inertia"],\
-                                        [list(self.modified_parameters_df["mass"]),\
-                                        list(self.modified_parameters_df["damping"]),\
-                                        inertia]\
-                                         )
+                                        parameters_values)
+
+        #time.sleep(10)
         self.robot = self.Do_Experiment (repeats=None,experiment=None,kp_list=list(self.modified_parameters_df["kp"]),\
                                                             ki_list=list(self.modified_parameters_df["ki"]),\
                                                             kd_list=list(self.modified_parameters_df["kd"]),\
                                                             max_vel_list=list(self.modified_parameters_df["max_vel"]),\
-                                                            test_force_per_one=list(self.modified_parameters_df["force_x_one"]))
+                                                            force_per_one_list=list(self.modified_parameters_df["force_x_one"]))
         df_test = self.Do_Average_experiments()
-        reward = self.Compute_Reward(df_test,df_Okay)
-        state,reward,done,_ = [1,reward,True,None]
-        return  [state,reward,done,_]
+
+        #Erase data from class robot to use it again
+        self.robot.database_name_old = None
+        self.robot.database_list = []
+        self.database_name = "Database"
+
+        self.df_avg = df_test.copy(deep=True)
+        reward = self.Compute_Reward(df_test)
+        return  reward
 
     def Do_Experiment(self,repeats=None,experiment=None,robot=None,max_vel_list=[30],force_per_one_list=[1],joint = 1,kp_list=[0.1],ki_list=[0.0],kd_list=[0.0]):
+
         if(robot == None):
             robot = self.robot
         if(repeats == None):
-            experiment = self.repeats
+            repeats = self.repeats
         if(experiment == None):
             experiment = self.experiment
 
@@ -174,48 +226,59 @@ class env_pybullet_kin_gen3() :
             max_vel_list = max_vel_list * robot.number_robot_control_joints
         if (len(force_per_one_list) == 1):
             force_per_one_list = force_per_one_list * robot.number_robot_control_joints
+
         if (len(kp_list) == 1):
-            kp_list = kp_list * robot.number_robot_contrkd_listol_joints
+            kp_list = kp_list * robot.number_robot_control_joints
         if (len(ki_list) == 1):
             ki_list = ki_list * robot.number_robot_control_joints
         if (len(kd_list) == 1):
             kd_list = kd_list * robot.number_robot_control_joints
 
+        #print(repeats)
         for iteration in range(repeats):
             # Initialization
-            counter = simSteps(experiment,env.robot.time_step) # detemine time
+            counter = simSteps(experiment,robot.time_step) # detemine time
 
             #create PIDs
             PID_List = []
             for i in range(robot.number_robot_control_joints ):
+                #print(str(max_vel_list[i])+" "+str(kp_list[i])+" "+ str(ki_list[i]) +" "+ str(kd_list[i]))
                 PID_List.append( PID(max_velocity=max_vel_list[i],kp=kp_list[i],ki=ki_list[i],kd=kd_list[i]) )
             robot.database_name = "Data_"+str(iteration)
+            #print("Values of max vel and kps")
+            #time.sleep(10)
+
 
             #Move to joint 0
-            angles_zero = [0.0]*robot.number_robot_control_joints
-            print(angles_zero)
+            angles_zero = [0.0]*len(robot.robot_control_joints)
+            #print(angles_zero)
             robot.save_database = False
             robot.move_joints(joint_param_value = angles_zero, wait=True)
 
             #Start saving data every time step
             robot.save_database = True
+
             #time.sleep(10)
             #Execute experiment during the especified time
+
             for simStep in range(counter):
 
                 #Every step compute the pid
                 PID_List = set_target_thetas(counter, PID_List,experiment,"PyBullet",simStep,joint)
-                print
-                #Every 12 steeps apply the control
-                if simStep % 12 == 0:
+
+                #Every 0.05 seconds apply the control
+                control_steps = int(0.05/robot.time_step)
+                if simStep % control_steps == 0:
+                    #time.sleep(10)
+
                     current_angles=robot.get_actual_control_joints_angle()
                     velocity_angles= []
 
                     #Compute the velocity
-                    for i in range( len(self.robot.robot_control_joints ) ):
-                        print(i)
-                        print(PID_List[i].get_target_theta())
-                        print(current_angles)
+                    for i in range( robot.number_robot_control_joints ):
+                        #print(i)
+                        #print(PID_List[i].get_target_theta())
+                        #print(current_angles)
                         velocity_angles.append( PID_List[i].get_velocity(math.degrees(current_angles[i])) /57.32484076 )
 
                     #Apply the controls
@@ -223,9 +286,11 @@ class env_pybullet_kin_gen3() :
 
                 robot.step_simulation()
 
+
         #Change one lasttime the name and simulate to append it to the database list
         robot.database_name = "dummy"
         robot.step_simulation()
+        robot.save_database = False
 
         return robot
 
@@ -242,12 +307,12 @@ class env_pybullet_kin_gen3() :
             #pass the data to a list to do the average
             angles_list.append(data.joints_angles_rad)
 
-            print(data.name)
-            print("\n")
+            #print(data.name)
+            #print("\n")
 
         #compute the average, convert all the data to numpy to make it easier
         joint_angles_array = np.array(angles_list)
-        print(joint_angles_array.shape)
+        #print(joint_angles_array.shape)
 
         #dimensions of the numpy
         [experiments,steps,joints] = joint_angles_array.shape
@@ -288,13 +353,17 @@ class env_pybullet_kin_gen3() :
         reward = np_result.sum()
 
         return reward
+
+    def save_parameters(self,Excel_path = "./Parameters_saved.xlsx"):
+        self.modified_parameters_df.to_excel(Excel_path)
+
 if (__name__=="__main__"):
     env = env_pybullet_kin_gen3()
 
     print(env.modified_parameters_df)
 
     #Test Step elements
-    env.robot.visual_inspection = False
+    env.robot.visual_inspection = True
     #Modify robot
 
     aux = np.vstack(( list(env.modified_parameters_df["Ixx"]),\
@@ -305,22 +374,28 @@ if (__name__=="__main__"):
     aux = aux.reshape(1,aux.size)
 
     inertia = list(list(aux).pop())
+    param_values = list(env.modified_parameters_df["mass"]) + list(env.modified_parameters_df["damping"])
 
-    env.robot.modify_robot_pybullet(env.robot.robot_control_joints,\
-                                    ["mass","damping","inertia"],\
-                                    [list(env.modified_parameters_df["mass"]),\
-                                    list(env.modified_parameters_df["damping"]),\
-                                    inertia]\
-                                     )
+    #env.robot.modify_robot_pybullet(env.robot.robot_control_joints,\
+                                    #["mass","damping"],\
+                                    #param_values\
+                                    # )
+    time.sleep(10)
     env.robot = env.Do_Experiment (repeats=env.repeats,experiment=None,kp_list=list(env.modified_parameters_df["kp"]),\
                                                         ki_list=list(env.modified_parameters_df["ki"]),\
                                                         kd_list=list(env.modified_parameters_df["kd"]),\
                                                         max_vel_list=list(env.modified_parameters_df["max_vel"]),\
                                                         force_per_one_list=list(env.modified_parameters_df["force_x_one"]))
     df_test = env.Do_Average_experiments(robot=env.robot)
+
     print(env.df_Okay)
     print(df_test)
     reward = env.Compute_Reward(df_test)
     print(reward)
+
+    #action = [ 1.54286749,  1.19724518,  0.88643233,  1.11632697, -0.29453078, -0.23184369,\
+        #-0.06842833, -1.24305685, -1.08163017,  0.20711672,  0.97938179,  0.35433912,\
+        #0.89111733, -0.5039466 ]
+    #env.step(action)
     while(True):
         time.sleep(0.01)
