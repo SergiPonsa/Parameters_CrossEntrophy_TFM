@@ -15,10 +15,13 @@ class env_pybullet_kin_gen3:
 class env_pybullet_kin_gen3() :
 
     def __init__(self,visual=True,Excel_path_Okay = "./Original_Mujoco_Training1_averageconverted.xlsx",\
-                    experiment = "Training1",repeats = 3):
+                    Excel_path_Okay_tcp = "./positions_from_joints_Mujoco.xlsx",experiment = "Training1",\
+                    orient_multiply = 0.009*0.5,repeats = 1, no_zeros = False):
         self.visual = visual
         self.experiment = experiment
         self.repeats = repeats
+        self.no_zeros = no_zeros
+        self.orient_multiply = orient_multiply
 
         if (self.visual == True):
             p.connect(p.GUI)
@@ -26,7 +29,7 @@ class env_pybullet_kin_gen3() :
         else:
             p.connect()
         p.setGravity(0.0, 0.0, -9.81)
-        self.robot = KinovaGen3(robot_urdf="../Simulation_Pybullet/models/urdf/JACO3_URDF_V11.urdf")
+        self.robot = KinovaGen3(robot_urdf="../Simulation_Pybullet/models/urdf/JACO3_URDF_V11.urdf",time_step = 0.05)
 
         self.robot.save_database = False
 
@@ -82,6 +85,7 @@ class env_pybullet_kin_gen3() :
 
         #Create a data frame with all the data original, to study
 
+
         self.original_parameters_df = pd.DataFrame({})
         #print("mass")
         #print(self.mass)
@@ -101,20 +105,52 @@ class env_pybullet_kin_gen3() :
 
         self.modified_parameters_df = self.original_parameters_df.copy(deep=True)
 
+
+
         #Has to exist in the data frame , and be equal to the column name
         #The action must be introduced in the same order, and as many values as joints are expected
 
 
         self.observation_space = 1
         self.parameters_to_modify = ["mass"]
+        #to apply the per one
+        if(self.no_zeros==True):
+            self.no_zero_actions()
+
         self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints
 
         self.df_Okay = self.create_df_from_Excel(Excel_path_Okay)
+        self.df_Okay_tcp = self.create_df_from_Excel(Excel_path_Okay_tcp)
 
         #print(self.link_name)
         #print(self.joint_id)
         #print(self.parent_link_id)
         #print(self.damping)
+
+    def no_zero_actions(self):
+        #List and numpy arrays by default are pointers if you don't use copy()
+        #For this reason this works
+        for element in self.parameters_to_modify:
+            joints_parameter = self.mass if element == "mass"\
+                            else self.Ixx if element == "Ixx"\
+                            else self.Iyy if element == "Iyy"\
+                            else self.Izz if element == "Izz"\
+                            else self.damping if element == "damping"\
+                            else self.kp if element =="kp"\
+                            else self.ki if element=="ki"\
+                            else self.kd if element =="kd"\
+                            else self.max_vel if element=="max_vel"\
+                            else self.force_x_one if element =="force_x_one"\
+                            else "error"
+            value = 0.1 if element =="kp"\
+                    else 0.05 if element =="ki"\
+                    else 0.001 if element =="kd"\
+                    else 0.1
+            for i in range(self.robot.number_robot_control_joints):
+                joints_parameter[i] = value if joints_parameter[i]==0 else joints_parameter[i]
+
+            self.original_parameters_df[element]=joints_parameter
+
     def create_df_from_Excel(self,Excel_path):
         df = pd.read_excel(Excel_path)
         df = df.iloc[:,1:]
@@ -127,10 +163,10 @@ class env_pybullet_kin_gen3() :
         return action_original
 
     def action_modified(self):
-        action_original = []
+        action_modified = []
         for parameter in self.parameters_to_modify:
-            action_original= action_original + list(self.modified_parameters_df[parameter])
-        return action_original
+            action_modified= action_modified + list(self.modified_parameters_df[parameter])
+        return action_modified
 
     def update_parameters_to_modify(self,parameters_to_modify):
         for parameter in parameters_to_modify:
@@ -143,6 +179,8 @@ class env_pybullet_kin_gen3() :
                     return
         self.parameters_to_modify = parameters_to_modify
         self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints
+        if(self.no_zeros == True):
+            self.no_zero_actions()
 
 
 
@@ -202,7 +240,20 @@ class env_pybullet_kin_gen3() :
                                                             kd_list=list(self.modified_parameters_df["kd"]),\
                                                             max_vel_list=list(self.modified_parameters_df["max_vel"]),\
                                                             force_per_one_list=list(self.modified_parameters_df["force_x_one"]))
-        df_test = self.Do_Average_experiments()
+        if (self.repeats == 1):
+            data = self.robot.database_list.pop()
+
+            #create data frame
+            df_test = pd.DataFrame({})
+            joint_angles = np.array(data.joints_angles_rad)
+            for i in range(joint_angles.shape[1]):
+                column_name = "joint"+str(i)
+
+                df_test[column_name] = joint_angles[:,i]
+            df_test.index = data.time
+
+        else:
+            df_test = self.Do_Average_experiments()
 
         #Erase data from class robot to use it again
         self.robot.database_name_old = None
@@ -212,6 +263,84 @@ class env_pybullet_kin_gen3() :
         self.df_avg = df_test.copy(deep=True)
         reward = self.Compute_Reward(df_test)
         return  reward
+
+    def step_tcp(self,action):
+        #Check the length it's right
+        #print("Hola")
+        #print(list(action))
+        #time.sleep(10)
+        #print( len(list(action)) )
+        #print(len(self.parameters_to_modify)*self.robot.number_robot_control_joints)
+        if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints):
+            print("The action has not the right length , with the parameters chossen to modify")
+        #I abstract the data again to individual variables
+        parameters_value = np.split(action,len(self.parameters_to_modify))
+
+        #I modify the corresponding parameters in the dataframe
+        for i in range( len(self.parameters_to_modify) ):
+            self.modified_parameters_df[self.parameters_to_modify[i]] = \
+                parameters_value[i]
+
+        #Modify robot
+
+        aux = np.vstack(( list(self.modified_parameters_df["Ixx"]),\
+                        list(self.modified_parameters_df["Iyy"]),
+                        list(self.modified_parameters_df["Izz"]) ))
+        aux = aux.T
+
+        aux = aux.reshape(1,aux.size)
+
+        inertia = list(list(aux).pop())
+        parameters_values = list(self.modified_parameters_df["mass"]) +\
+                            list(self.modified_parameters_df["damping"])+inertia
+        #print(self.modified_parameters_df)
+        #print(parameters_values)
+
+        #Start allways in the same state
+        #p.restoreState(stateId=self.init_state_id)
+        """
+        """
+        self.robot.modify_robot_pybullet(self.robot.robot_control_joints,\
+                                        ["mass","damping","inertia"],\
+                                        parameters_values)
+
+        #time.sleep(10)
+        self.robot = self.Do_Experiment (repeats=None,experiment=None,kp_list=list(self.modified_parameters_df["kp"]),\
+                                                            ki_list=list(self.modified_parameters_df["ki"]),\
+                                                            kd_list=list(self.modified_parameters_df["kd"]),\
+                                                            max_vel_list=list(self.modified_parameters_df["max_vel"]),\
+                                                            force_per_one_list=list(self.modified_parameters_df["force_x_one"]))
+        if (self.repeats == 1):
+            data = self.robot.database_list.pop()
+
+            #create data frame
+            df_test = pd.DataFrame({})
+            tcp_position_np = np.array(data.tcp_position)
+            for i in range(tcp_position_np.shape[1]):
+                column_name = "pos"+str(i)
+
+                df_test[column_name] = tcp_position_np[:,i]
+
+            tcp_orientation_e = np.array(data.tcp_orientation_e)
+            for i in range(tcp_orientation_e.shape[1]):
+                column_name = "ori"+str(i)
+
+                df_test[column_name] = tcp_orientation_e[:,i]
+
+            df_test.index = data.time
+
+        else:
+            df_test = self.Do_Average_experiments_tcp()
+
+        #Erase data from class robot to use it again
+        self.robot.database_name_old = None
+        self.robot.database_list = []
+        self.database_name = "Database"
+
+        self.df_avg = df_test.copy(deep=True)
+        reward = self.Compute_Reward_tcp(df_test)
+        return  reward
+
 
     def Do_Experiment(self,repeats=None,experiment=None,robot=None,max_vel_list=[30],force_per_one_list=[1],joint = 1,kp_list=[0.1],ki_list=[0.0],kd_list=[0.0]):
 
@@ -337,6 +466,70 @@ class env_pybullet_kin_gen3() :
 
         return avg_df
 
+    def Do_Average_experiments_tcp(self,robot = None):
+        if(robot == None):
+            robot = self.robot
+
+        dataframe_list = []
+        tcp_position_list = []
+        tcp_orientation_e_list = []
+
+        #Go through all the database classes created during the experiment
+        for data in robot.database_list:
+
+            #pass the data to a list to do the average
+            tcp_position_list.append(data.tcp_position)
+            tcp_orientation_e_list.append(data.tcp_orientation_e)
+
+            #print(data.name)
+            #print("\n")
+
+        #compute the average, convert all the data to numpy to make it easier
+        tcp_position_array = np.array(tcp_position_list)
+        #print(tcp_position_array.shape)
+        #dimensions of the numpy
+        [experiments,steps,tcp_position] = tcp_position_array.shape
+        #compute the average, convert all the data to numpy to make it easier
+        tcp_orientation_e_array = np.array(tcp_orientation_e_list)
+        #print(tcp_orientation_e_array.shape)
+        #dimensions of the numpy
+        [experiments,steps,tcp_orientation_e] = tcp_orientation_e_array.shape
+
+        #dimensions of the numpy
+        [experiments,steps,joints] = joint_angles_array.shape
+
+        average_pos_steps = []
+        average_ori_steps = []
+        for stp in range(steps):
+            average_pos = []
+            average_ori = []
+            for j in range(tcp_position):
+                average_value = np.average(tcp_position_array[:,stp,j])
+                average_pos.append(average_value)
+                average_value = np.average(tcp_orientation_e_array[:,stp,j])
+                average_ori.append(average_value)
+            average_pos_steps.append(average_pos)
+            average_ori_steps.append(average_ori)
+
+        #create the average data frame
+        avg_df = pd.DataFrame({})
+
+        tcp_pos_average = np.array(average_pos_steps)
+        tcp_ori_average = np.array(average_ori_steps)
+
+        avg_df["pos x"] = tcp_pos_average [:,0]
+        avg_df["pos y"] = tcp_pos_average [:,1]
+        avg_df["pos z"] = tcp_pos_average [:,2]
+
+        avg_df["ori x"] = tcp_ori_average [:,0]
+        avg_df["ori y"] = tcp_ori_average [:,1]
+        avg_df["ori z"] = tcp_ori_average [:,2]
+
+        avg_df.index = data.time
+
+        return avg_df
+
+
     def Compute_Reward(self,df_test,df_Okay=None):
         if(df_Okay == None):
             df_Okay = self.df_Okay
@@ -348,7 +541,25 @@ class env_pybullet_kin_gen3() :
 
             print("Data samples have diferent shapes correct it")
 
-        np_result = np_ToSubstract[:,1:] - np_Substract[:,1:]
+        np_result = np_ToSubstract[:,:] - np_Substract[:,:]
+        np_result = np.absolute(np_result) *-1
+        reward = np_result.sum()
+
+        return reward
+
+    def Compute_Reward_tcp(self,df_test,df_Okay=None):
+        if(df_Okay == None):
+            df_Okay = self.df_Okay_tcp
+
+        np_Substract = df_test.to_numpy()
+        np_ToSubstract = df_Okay.to_numpy()
+
+        if (np_Substract.shape != np_ToSubstract.shape):
+
+            print("Data samples have diferent shapes correct it")
+
+        np_result = np_ToSubstract[:,:] - np_Substract[:,:]
+        np_result[:,3:] = np_result[:,3:] * self.orient_multiply
         np_result = np.absolute(np_result) *-1
         reward = np_result.sum()
 
@@ -360,10 +571,12 @@ class env_pybullet_kin_gen3() :
 if (__name__=="__main__"):
     env = env_pybullet_kin_gen3()
 
+    Reward_opt = 1 #0 reward using joints | 1 reward using tcp
+
     print(env.modified_parameters_df)
 
     #Test Step elements
-    env.robot.visual_inspection = True
+    env.robot.visual_inspection = False
     #Modify robot
 
     aux = np.vstack(( list(env.modified_parameters_df["Ixx"]),\
@@ -386,12 +599,64 @@ if (__name__=="__main__"):
                                                         kd_list=list(env.modified_parameters_df["kd"]),\
                                                         max_vel_list=list(env.modified_parameters_df["max_vel"]),\
                                                         force_per_one_list=list(env.modified_parameters_df["force_x_one"]))
-    df_test = env.Do_Average_experiments(robot=env.robot)
+    if(Reward_opt == 0):
+        if(env.repeats ==1):
+            data = env.robot.database_list.pop()
 
-    print(env.df_Okay)
-    print(df_test)
-    reward = env.Compute_Reward(df_test)
+            #create data frame
+            df_test = pd.DataFrame({})
+            joint_angles = np.array(data.joints_angles_rad)
+            print(joint_angles)
+            print(joint_angles.shape)
+            for i in range(joint_angles.shape[1]):
+                print(i)
+                column_name = "joint"+str(i)
+
+                df_test[column_name] = joint_angles[:,i]
+            print(len(data.time))
+            print(data.time)
+            df_test.index = data.time
+
+        else:
+            df_test = env.Do_Average_experiments(robot=env.robot)
+    else:
+        if(env.repeats ==1):
+            data = env.robot.database_list.pop()
+
+            #create data frame
+            df_test = pd.DataFrame({})
+            tcp_position_np = np.array(data.tcp_position)
+            for i in range(tcp_position_np.shape[1]):
+                column_name = "pos"+str(i)
+
+                df_test[column_name] = tcp_position_np[:,i]
+
+            tcp_orientation_e = np.array(data.tcp_orientation_e)
+            for i in range(tcp_orientation_e.shape[1]):
+                column_name = "ori"+str(i)
+
+                df_test[column_name] = tcp_orientation_e[:,i]
+
+            df_test.index = data.time
+
+        else:
+            df_test = env.Do_Average_experiments_tcp(robot=env.robot)
+
+
+
+    if(Reward_opt == 0):
+        print(env.df_Okay)
+        print(df_test)
+        df_test.to_excel("Test_enverionment.xlsx")
+        reward = env.Compute_Reward(df_test)
+    else:
+        print(env.df_Okay_tcp)
+        print(df_test)
+        df_test.to_excel("Test_enverionment_tcp.xlsx")
+        reward = env.Compute_Reward_tcp(df_test)
     print(reward)
+
+
 
     #action = [ 1.54286749,  1.19724518,  0.88643233,  1.11632697, -0.29453078, -0.23184369,\
         #-0.06842833, -1.24305685, -1.08163017,  0.20711672,  0.97938179,  0.35433912,\
