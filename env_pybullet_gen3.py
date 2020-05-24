@@ -16,12 +16,13 @@ class env_pybullet_kin_gen3() :
 
     def __init__(self,visual=True,Excel_path_Okay = "./Original_Mujoco_Training1_averageconverted.xlsx",\
                     Excel_path_Okay_tcp = "./positions_from_joints_Mujoco.xlsx",experiment = "Training1",\
-                    orient_multiply = 0.009*0.5,repeats = 1, no_zeros = False,time_step=0.05):
+                    orient_multiply = 0.009*0.5,repeats = 1, no_zeros = False,time_step=0.05,home_angles=[0, 0.392, 0.0, 1.962, 0.0, 0.78, 0.0]):
         self.visual = visual
         self.experiment = experiment
         self.repeats = repeats
         self.no_zeros = no_zeros
         self.orient_multiply = orient_multiply
+        self.home_angles = home_angles
 
         if (self.visual == True):
             p.connect(p.GUI)
@@ -29,7 +30,7 @@ class env_pybullet_kin_gen3() :
         else:
             p.connect()
         p.setGravity(0.0, 0.0, -9.81)
-        self.robot = KinovaGen3(robot_urdf="../Simulation_Pybullet/models/urdf/JACO3_URDF_V11.urdf",time_step = time_step)
+        self.robot = KinovaGen3(robot_urdf="../Simulation_Pybullet/models/urdf/JACO3_URDF_V11.urdf",time_step = time_step,home_angles=home_angles)
 
         self.robot.save_database = False
 
@@ -144,7 +145,8 @@ class env_pybullet_kin_gen3() :
                             else "error"
             value = 0.1 if element =="kp"\
                     else 0.05 if element =="ki"\
-                    else 0.001 if element =="kd"\
+                    else 0.05 if element =="kd"\
+                    else 0.05 if element =="damping"\
                     else 0.1
             for i in range(self.robot.number_robot_control_joints):
                 joints_parameter[i] = value if joints_parameter[i]==0 else joints_parameter[i]
@@ -569,7 +571,7 @@ class env_pybullet_kin_gen3() :
 
                     #Apply the controls
                     robot.move_joints_control_vel( joint_param_value = velocity_angles ,wait = False , desired_force_per_one_list=force_per_one_list)
-
+                    p.stepSimulation()
                 robot.step_simulation()
 
 
@@ -581,9 +583,9 @@ class env_pybullet_kin_gen3() :
         return robot
 
     def Do_Experiment_from_Excel_Data(self,repeats=None,experiment=None,robot=None,max_vel_list=[30],force_per_one_list=[1],joint = 1,kp_list=[0.1],ki_list=[0.0],kd_list=[0.0],\
-                                        Excel_Data_List=["test_tcp_19_averageconverted.xlsx",\
-                                        "test_tcp_39_averageconverted.xlsx",\
-                                        "test_tcp_59_averageconverted.xlsx"],TCP=True,RPY=False,change_joints_time = 0.005,Experiment_time=0.2):
+                                        Excel_Data_List=["Joint_Trajectori_19converted.xlsx",\
+                                        "Joint_Trajectori_39converted.xlsx",\
+                                        "Joint_Trajectori_59converted.xlsx"],TCP=False,RPY=False,change_joints_time = 0.05,Experiment_time=2):
 
         if(robot == None):
             robot = self.robot
@@ -614,7 +616,7 @@ class env_pybullet_kin_gen3() :
             #Get joints data
             all_joints = self.Get_joints_from_Excel(Excel_Data_List[iteration],robot = robot,RPY=RPY,TCP=TCP)
             #print("I Exit")
-            #print(all_joints)
+            #print(str(all_joints)+"\n")
 
             #create PIDs
             PID_List = []
@@ -630,7 +632,7 @@ class env_pybullet_kin_gen3() :
             angles_zero = [0.0]*len(robot.robot_control_joints)
             #print(angles_zero)
             robot.save_database = False
-            robot.move_joints(joint_param_value = angles_zero, wait=True)
+            robot.move_joints(joint_param_value = self.home_angles, wait=True)
 
             #Start saving data every time step
             robot.save_database = True
@@ -640,12 +642,13 @@ class env_pybullet_kin_gen3() :
 
             #Every x seconds apply the control
             control_steps = int(change_joints_time/robot.time_step)
-            #print(control_steps)
+            #print("control_steps"+str(control_steps))
+            #print("counter"+str(counter))
             control_steps = 1 if control_steps == 0 else control_steps
 
             for simStep in range(counter):
-                #print(simStep)
-
+                #print("simStep "+str(simStep))
+                #time.sleep(10.0)
                 if simStep % control_steps == 0:
                     #print("i apply control")
                     current_angles=robot.get_actual_control_joints_angle()
@@ -657,9 +660,10 @@ class env_pybullet_kin_gen3() :
                         #print(i)
                         #print(PID_List[i].get_target_theta())
                         #print(current_angles)
-                        PID_List[i].set_target_theta(joints[i])
+                        PID_List[i].set_target_theta(joints[i],degrees=False)
                         velocity_angles.append( PID_List[i].get_velocity(math.degrees(current_angles[i])) /57.32484076 )
-
+                    #print(str(velocity_angles)+"\n")
+                    #time.sleep(100)
                     #Apply the controls
                     robot.move_joints_control_vel( joint_param_value = velocity_angles ,wait = False , desired_force_per_one_list=force_per_one_list)
 
@@ -698,7 +702,7 @@ class env_pybullet_kin_gen3() :
                                                       maxNumIterations = max_iteration)
                 joints.append(list(inv_result))
         else:
-            joints = Datanumpy_Data[:,:]
+            joints = list(Datanumpy_Data[:,:])
 
         return joints
 
