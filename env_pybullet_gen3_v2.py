@@ -16,9 +16,9 @@ class env_pybullet_kin_gen3() :
 
     def __init__(self,visual=True,Excel_path_Okay = "./Original_Mujoco_Training1_averageconverted.xlsx",\
                     Excel_path_Okay_tcp = "./positions_from_joints_Mujoco.xlsx",Excels_path_Okay_tcp_list = ["Tcp_Trajectori_19.xlsx","Tcp_Trajectori_39.xlsx","Tcp_Trajectori_59.xlsx"],experiment = "Training1",\
-                    Actions_offsets_Numpy_files = ["acs_19_tcp.npy","acs_39_tcp.npy","acs_59_tcp.npy"],orient_multiply = 0.009*0.5,repeats = 1, no_zeros = False,time_step=0.05,home_angles=[0, 0.392, 0.0, 1.962, 0.0, 0.78, 0.0]):
+                    ,Actions_offsets_Numpy_files = ["acs_19_tcp.npy","acs_39_tcp.npy","acs_59_tcp.npy"],orient_multiply = 0.009*0.5,repeats = 1, no_zeros = False,time_step=0.05,home_angles=[0, 0.392, 0.0, 1.962, 0.0, 0.78, 0.0]):
         self.visual = visual
-        self.experiment = experiment
+        self.experiment = experiment"
         self.repeats = repeats
         self.no_zeros = no_zeros
         self.orient_multiply = orient_multiply
@@ -54,7 +54,7 @@ class env_pybullet_kin_gen3() :
         [self.mass_base,self.lateral_friction_base,self.inertia_base,self.inertial_pos_base,self.inertial_orn_base,\
                                 self.restitution_base,self.rolling_friction_base,self.spinning_friction_base,\
                                 self.contact_damping_base,self.contact_stiffness_base,\
-                                self.body_type_base,self.collision_margin_base] = np.array(p.getDynamicsInfo(self.robot.robot_id,0))
+                                self.body_type_base,self.collision_margin_base] = np.array(p.getDynamicsInfo(self.robot_id,-1))
         #pass to only 1 value for varialble
 
         #For all following joint links
@@ -66,12 +66,12 @@ class env_pybullet_kin_gen3() :
         self.Ixx,self.Iyy,self.Izz = np.hsplit(self.inertia,self.inertia.shape[1])
 
         #For the base
-        #print(self.mass_base)
-        #print(self.inertia_base)
-        self.inertia_base = list(self.inertia_base)
-        #print(self.inertia_base)
-        self.Ixx_base,self.Iyy_base,self.Izz_base = self.inertia_base.copy()
-        #print("self.Ixx_base",self.Ixx_base,"self.Iyy_base",self.Iyy_base,"self.Izz_base",self.Izz_base)
+        self.inertia_base =self.inertia_base[:,0]
+        inertia_base = []
+        for element in self.inertia_base:
+            inertia_base.append(list(element))
+        self.inertia_base =np.asarray(inertia_base)
+        self.Ixx_base,self.Iyy_base,self.Izz_base = np.hsplit(self.inertia_base,self.inertia_base.shape[1])
 
 
         #Control parameters
@@ -114,10 +114,10 @@ class env_pybullet_kin_gen3() :
         self.original_parameters_df ["force_x_one"] = self.force_x_one
 
         self.original_parameters_base_df = pd.DataFrame({})
-        self.original_parameters_base_df ["mass_base"] = self.mass_base
-        self.original_parameters_base_df ["Ixx_base"] = self.Ixx_base
-        self.original_parameters_base_df ["Iyy_base"] = self.Iyy_base
-        self.original_parameters_base_df ["Izz_base"] = self.Izz_base
+        self.original_parameters_base_df ["mass"] = self.mass_base
+        self.original_parameters_base_df ["Ixx"] = self.Ixx_base
+        self.original_parameters_base_df ["Iyy"] = self.Iyy_base
+        self.original_parameters_base_df ["Izz"] = self.Izz_base
 
 
         self.modified_parameters_df = self.original_parameters_df.copy(deep=True)
@@ -135,7 +135,7 @@ class env_pybullet_kin_gen3() :
         if(self.no_zeros==True):
             self.no_zero_actions()
 
-        self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints if (self.parameters_to_modify_base == None)\
+        self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints if (parameters_to_modify_base == None)\
                             else len(self.parameters_to_modify)*self.robot.number_robot_control_joints + len(self.parameters_to_modify_base)
 
         self.df_Okay = self.create_df_from_Excel(Excel_path_Okay)
@@ -184,7 +184,7 @@ class env_pybullet_kin_gen3() :
         for parameter in self.parameters_to_modify:
             action_original= action_original + list(self.original_parameters_df[parameter])
 
-        if (self.parameters_to_modify_base != None):
+        if (parameters_to_modify_base != None):
             for parameter in self.parameters_to_modify_base:
                 action_original= action_original + list(self.original_parameters_base_df[parameter])
 
@@ -193,7 +193,7 @@ class env_pybullet_kin_gen3() :
         action_modified = []
         for parameter in self.parameters_to_modify:
             action_modified= action_modified + list(self.modified_parameters_df[parameter])
-        if (self.parameters_to_modify_base != None):
+        if (parameters_to_modify_base != None):
             for parameter in self.parameters_to_modify_base:
                 action_modified = action_modified + list(self.modified_parameters_base_df[parameter])
 
@@ -210,7 +210,7 @@ class env_pybullet_kin_gen3() :
                     return
         self.parameters_to_modify = parameters_to_modify
 
-        self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints if (self.parameters_to_modify_base == None)\
+        self.action_space = len(self.parameters_to_modify)*self.robot.number_robot_control_joints if (parameters_to_modify_base == None)\
                             else len(self.parameters_to_modify)*self.robot.number_robot_control_joints + len(self.parameters_to_modify_base)
         if(self.no_zeros == True):
             self.no_zero_actions()
@@ -545,7 +545,7 @@ class env_pybullet_kin_gen3() :
 
     def step_tcp_rishabh_actions(self,action):
 
-        if (self.parameters_to_modify_base == None):
+        if (parameters_to_modify_base == None):
 
             if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints):
                 print("The action (parameters) has not the right length , with the parameters chossen to modify")
@@ -590,22 +590,20 @@ class env_pybullet_kin_gen3() :
                         list(self.modified_parameters_base_df["Iyy_base"])+\
                         list(self.modified_parameters_base_df["Izz_base"])
         parameters_values_base = list(self.modified_parameters_base_df["mass_base"]) +inertia_base
-        print(parameters_values_base)
+        #print(self.modified_parameters_df)
         #print(parameters_values_link)
 
         #Start allways in the same state
         #p.restoreState(stateId=self.init_state_id)
         """
         """
-        """
         self.robot.modify_robot_pybullet(self.robot.robot_control_joints,\
                                         ["mass","damping","inertia"],\
                                         parameters_values_link)
-        """
-        """
-        self.robot.modify_robot_pybullet_base(["mass_base","inertia_base"],\
-                                        #parameters_values_base)
-        """
+
+        self.robot.modify_robot_pybullet_base(self.robot.robot_control_joints,\
+                                        ["mass_base","inertia_base"],\
+                                        parameters_values_base)
 
         #time.sleep(10)
         self.robot = self.Do_Experiment_from_Numpy_actions (kp_list=list(self.modified_parameters_df["kp"]),\
@@ -615,27 +613,10 @@ class env_pybullet_kin_gen3() :
                                                     force_per_one_list=list(self.modified_parameters_df["force_x_one"]))
 
         reward = 0
-
-        for i in range(len(self.robot.database_list)):
-            self.df_Okay_tcp = self.df_Okay_tcp_list[i]
-            #print("self.df_Okay_tcp",self.df_Okay_tcp)
-            tcp_pos = np.array(self.robot.database_list[i].tcp_position)
-            tcp_ori  = np.array(self.robot.database_list[i].tcp_orientation_e)
-            print("tcp_pos.shape",tcp_pos.shape)
-            print("tcp_ori.shape",tcp_ori.shape)
-
-            df_test = pd.DataFrame({})
-            df_test["pos x"] = tcp_pos [:,0]
-            df_test["pos y"] = tcp_pos [:,1]
-            df_test["pos z"] = tcp_pos [:,2]
-
-            df_test["ori x"] = tcp_ori [:,0]
-            df_test["ori y"] = tcp_ori [:,1]
-            df_test["ori z"] = tcp_ori [:,2]
-
-            if(i==2):
-                self.df_avg = df_test.copy(deep=True)
-            reward = reward + self.Compute_Reward_tcp_Euclidian(df_test)
+        self.df_avg = self.robot.database_list[0].copy(deep=True)
+        for i in range len(self.robot.database_list):
+            self.df_Okay = self.df_Okay_tcp_list[i]
+            reward = reward + self.Compute_Reward_tcp_Euclidian(self.robot.database_list[i])
         reward = reward / len(self.robot.database_list)
 
         #Erase data from class robot to use it again
@@ -647,117 +628,6 @@ class env_pybullet_kin_gen3() :
 
         return  reward
 
-    def step_tcp_rishabh_joints_offset(self,action):
-
-        if (self.parameters_to_modify_base == None):
-
-            if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints):
-                print("The action (parameters) has not the right length , with the parameters chossen to modify")
-            #I abstract the data again to individual variables
-            parameters_value = np.split(action,len(self.parameters_to_modify))
-
-            #I modify the corresponding parameters in the dataframe
-            for i in range( len(self.parameters_to_modify) ):
-                self.modified_parameters_df[self.parameters_to_modify[i]] = \
-                    parameters_value[i]
-        else:
-            if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints)+len(self.parameters_to_modify_base):
-                print("The action (parameters) has not the right length , with the parameters chossen to modify")
-            #I abstract the data again to individual variables
-            action_joints = action[:-len(self.parameters_to_modify_base)]
-            action_base = action[-len(self.parameters_to_modify_base):]
-            parameters_value = np.split(action_joints,len(self.parameters_to_modify))
-            parameters_value_base = action_base
-
-            #I modify the corresponding parameters in the dataframe
-            for i in range( len(self.parameters_to_modify) ):
-                self.modified_parameters_df[self.parameters_to_modify[i]] = \
-                    parameters_value[i]
-            for i in range( len(self.parameters_to_modify_base) ):
-                self.modified_parameters_base_df[self.parameters_to_modify_base[i]] = \
-                    parameters_value_base[i]
-
-        #Modify robot
-
-        aux = np.vstack(( list(self.modified_parameters_df["Ixx"]),\
-                        list(self.modified_parameters_df["Iyy"]),
-                        list(self.modified_parameters_df["Izz"]) ))
-        aux = aux.T
-
-        aux = aux.reshape(1,aux.size)
-
-        inertia = list(list(aux).pop())
-        parameters_values_link = list(self.modified_parameters_df["mass"]) +\
-                            list(self.modified_parameters_df["damping"])+inertia
-
-        inertia_base = list(self.modified_parameters_base_df["Ixx_base"])+\
-                        list(self.modified_parameters_base_df["Iyy_base"])+\
-                        list(self.modified_parameters_base_df["Izz_base"])
-        parameters_values_base = list(self.modified_parameters_base_df["mass_base"]) +inertia_base
-        print(parameters_values_base)
-        #print(parameters_values_link)
-
-        #Start allways in the same state
-        #p.restoreState(stateId=self.init_state_id)
-
-        self.robot.modify_robot_pybullet(self.robot.robot_control_joints,\
-                                        ["mass","damping","inertia"],\
-                                        parameters_values_link)
-
-        self.robot.modify_robot_pybullet_base(["mass_base","inertia_base"],\
-                                        parameters_values_base)
-
-
-        #time.sleep(10)
-        self.robot = self.Do_Experiment_from_Excel_joints_offset (kp_list=list(self.modified_parameters_df["kp"]),\
-                                                            ki_list=list(self.modified_parameters_df["ki"]),\
-                                                            kd_list=list(self.modified_parameters_df["kd"]),\
-                                                            max_vel_list=list(self.modified_parameters_df["max_vel"]),\
-                                                    force_per_one_list=list(self.modified_parameters_df["force_x_one"]))
-
-        reward = 0
-
-        for i in range(len(self.robot.database_list)):
-            self.df_Okay_tcp = self.df_Okay_tcp_list[i]
-            #print("self.df_Okay_tcp",self.df_Okay_tcp)
-            tcp_pos = np.array(self.robot.database_list[i].tcp_position)
-            tcp_ori  = np.array(self.robot.database_list[i].tcp_orientation_e)
-
-            print("tcp_pos.shape",tcp_pos.shape)
-            print("tcp_ori.shape",tcp_ori.shape)
-
-            df_test = pd.DataFrame({})
-            df_test["pos x"] = tcp_pos [:,0]
-            df_test["pos y"] = tcp_pos [:,1]
-            df_test["pos z"] = tcp_pos [:,2]
-
-            df_test["ori x"] = tcp_ori [:,0]
-            df_test["ori y"] = tcp_ori [:,1]
-            df_test["ori z"] = tcp_ori [:,2]
-
-
-
-            if(i==2):
-                self.df_avg = df_test.copy(deep=True)
-                joints = np.array(self.robot.database_list[i].joints_angles_rad)
-                self.df_avg["joint 0"] = joints [:,0]
-                self.df_avg["joint 1"] = joints [:,1]
-                self.df_avg["joint 2"] = joints [:,2]
-                self.df_avg["joint 3"] = joints [:,3]
-                self.df_avg["joint 4"] = joints [:,4]
-                self.df_avg["joint 5"] = joints [:,5]
-                self.df_avg["joint 6"] = joints [:,6]
-            reward = reward + self.Compute_Reward_tcp_Euclidian(df_test)
-        reward = reward / len(self.robot.database_list)
-
-        #Erase data from class robot to use it again
-        self.robot.database_name_old = None
-        self.robot.database_list = []
-        self.database_name = "Database"
-
-
-
-        return  reward
 
     def Do_Experiment(self,repeats=None,experiment=None,robot=None,max_vel_list=[30],force_per_one_list=[1],joint = 1,kp_list=[0.1],ki_list=[0.0],kd_list=[0.0]):
 
@@ -963,103 +833,8 @@ class env_pybullet_kin_gen3() :
 
         return joints
 
-    def Do_Experiment_from_Excel_joints_offset(self,robot=None,max_vel_list=[30],force_per_one_list=[1],joint = 1,kp_list=[0.1],ki_list=[0.0],kd_list=[0.0],\
-                                        Excel_Data_List=["Joint_Trajectori_19_offset.xlsx",\
-                                        "Joint_Trajectori_39_offset.xlsx",\
-                                        "Joint_Trajectori_59_offset.xlsx"],TCP=False,RPY=False,change_joints_time = 0.02,Experiment_time=1.98,InversKinKinova=True):
-
-        if(robot == None):
-            robot = self.robot
-
-        if (len(max_vel_list) == 1):
-            max_vel_list = max_vel_list * robot.number_robot_control_joints
-        if (len(force_per_one_list) == 1):
-            force_per_one_list = force_per_one_list * robot.number_robot_control_joints
-
-        if (len(kp_list) == 1):
-            kp_list = kp_list * robot.number_robot_control_joints
-        if (len(ki_list) == 1):
-            ki_list = ki_list * robot.number_robot_control_joints
-        if (len(kd_list) == 1):
-            kd_list = kd_list * robot.number_robot_control_joints
-
-
-        if(robot.time_step> change_joints_time):
-            print("It can't be right, the change joints time  has to be higer or equal to robot time step ")
-            return
-
-        if(change_joints_time> Experiment_time):
-            print("It can't be right, the Experiment time has to be higer or equal to change joints time")
-            return
-
-        #print("I Extract data")
-        #print(Excel_Data_List)
-        for iteration in range(len(self.Actions_offsets_Numpy_files)):
-            all_joints = self.Get_joints_from_Excel(Excel_Data_List[iteration],robot = robot,RPY=RPY,TCP=False)
-            # Initialization
-            counter = int(Experiment_time/robot.time_step) # detemine time
-            #Get actions data
-
-            print("Actions_provided",len(all_joints))
-            #print("Action 50",Actions[50])
-            #time.sleep(100)
-
-            #create PIDs
-            PID_List = []
-            for i in range(robot.number_robot_control_joints ):
-                #print(str(max_vel_list[i])+" "+str(kp_list[i])+" "+ str(ki_list[i]) +" "+ str(kd_list[i]))
-                PID_List.append( PID(max_velocity=max_vel_list[i],kp=kp_list[i],ki=ki_list[i],kd=kd_list[i]) )
-            robot.database_name = "Data_"+str(iteration)
-
-
-
-            robot.save_database = False
-            robot.move_joints(joint_param_value = self.home_angles, wait=True)
-
-
-            #Every x seconds apply the control
-            control_steps = int(change_joints_time/robot.time_step)
-
-            control_steps = 1 if control_steps == 0 else control_steps
-
-            for simStep in range(counter):
-                #print("simStep "+str(simStep))
-                #time.sleep(10.0)
-                if simStep % control_steps == 0:
-                    #print("i apply control")
-                    robot.save_database = True
-                    current_angles=robot.get_actual_control_joints_angle()
-                    velocity_angles= []
-                    joint_offset_to_apply = all_joints.pop(0)
-
-                    joints_target = list(np.array(current_angles)+np.array(joint_offset_to_apply))
-
-                    #Compute the velocity and set thetas
-                    for i in range( robot.number_robot_control_joints ):
-                        #print(i)
-                        #print(PID_List[i].get_target_theta())
-                        #print(current_angles)
-                        PID_List[i].set_target_theta(joints_target[i],degrees=False)
-                        velocity_angles.append( PID_List[i].get_velocity(math.degrees(current_angles[i])) /57.32484076 )
-                    #print(str(velocity_angles)+"\n")
-                    #time.sleep(100)
-                    #Apply the controls
-                    robot.move_joints_control_vel( joint_param_value = velocity_angles ,wait = False , desired_force_per_one_list=force_per_one_list)
-
-                robot.step_simulation()
-                robot.save_database = False
-
-
-        #Change one lasttime the name and simulate to append it to the database list
-        robot.database_name = "dummy"
-        robot.save_database = True
-        robot.step_simulation()
-        robot.save_database = False
-
-        return robot
-
     def Do_Experiment_from_Numpy_actions(self,robot=None,max_vel_list=[30],force_per_one_list=[1],joint = 1,kp_list=[0.1],ki_list=[0.0],kd_list=[0.0],\
-                                        TCP=False,RPY=False,change_joints_time = 0.02,Experiment_time=2,InversKinKinova=True):
+                                        ,TCP=False,RPY=False,change_joints_time = 0.02,Experiment_time=2):
 
         if(robot == None):
             robot = self.robot
@@ -1088,10 +863,8 @@ class env_pybullet_kin_gen3() :
             Actions = np.load(self.Actions_offsets_Numpy_files[iteration])
             Actions = Actions * self.Actions_offstes_multiplier
             Actions = list(Actions)
-
-            print("Actions_provided",len(Actions))
-            print("Action 50",Actions[50])
-            #time.sleep(100)
+            print(len(Actions))
+            time.sleep(100)
 
             #create PIDs
             PID_List = []
@@ -1120,49 +893,10 @@ class env_pybullet_kin_gen3() :
                     current_angles=robot.get_actual_control_joints_angle()
                     velocity_angles= []
                     Action_to_apply = Actions.pop(0)
-                    #print("Action_to_apply",Action_to_apply)
-
                     Orientation_offset_e = [0,0,0]
-
-                    [move_position,move_orientation_q] = robot.get_cartesian_offset_target_pose(Action_to_apply,Orientation_offset_e)
-                    #print("Actual pose",robot.get_actual_tcp_pose())
-
-                    pose = [move_position,list(move_orientation_q)]
-                    #print("Target pose",pose)
-                    #print("\n"*2)
-                    # if(InversKinKinova == False):
-                    error = 100
-
-                    maxNum = 10 ** 5
-                    #
-                    Try = 0
-                    restpos = robot.get_actual_control_joints_angle()
-                    while(error >= 0.05):
-                        joints_target = p.calculateInverseKinematics(robot.robot_id, robot.last_robot_joint_index, pose[0],pose[1],maxNumIterations = maxNum,\
-                                                          lowerLimits = robot.lower_limit,\
-                                                          upperLimits = robot.upper_limit,\
-                                                          jointRanges = robot.joint_range,\
-                                                          restPoses = restpos,\
-                                                          residualThreshold = 10**-15,\
-                                                          solver = 0)
-                        restpos = joints_target
-
-                        pose_computed = robot.forward_kinematics_7dof_kinova_gen3_2(joints_target)
-                        position = pose_computed[:-1,3]
-                        position = position.reshape([1,3])
-
-                        error_v = list(np.array(pose[0]) - position)
-                        error_v = error_v.pop()
-                        #print(" pose[0]: ", pose[0])
-                        #print(" position: ", position)
-                        #print(" error_v: ", error_v)
-                        error = abs(error_v[0])+abs(error_v[1])+abs(error_v[2])
-                        Try +=1
-                        print("Try ",Try," error: ", error)
-
-                    # else:
-                    #     position = pose[0] + p.getEulerFromQuaternion()
-
+                    pose = self.robot.get_cartesian_offset_target_pose(Action_to_apply,Orientation_offset_e)
+                    joints_target = p.calculateInverseKinematics(self.robot.robot_id, self.robot.last_robot_joint_index, pose[0], pose[1],
+                                                      maxNumIterations = 20)
                     #Compute the velocity and set thetas
                     for i in range( robot.number_robot_control_joints ):
                         #print(i)
@@ -1186,7 +920,6 @@ class env_pybullet_kin_gen3() :
         robot.save_database = False
 
         return robot
-
 
     def Do_Average_experiments(self,robot = None):
         if(robot == None):
@@ -1385,8 +1118,6 @@ class env_pybullet_kin_gen3() :
         np_ori = np.absolute(np_ori)
         np_ori = np_ori.sum()/np_ori.shape[0]
 
-        print("euc_distbytime_btw",euc_distbytime_btw)
-        print("euc_endsdist_btw",euc_endsdist_btw)
         reward = -1*euc_distbytime_btw + -1*euc_endsdist_btw + -1*np_ori
 
         return reward
@@ -1397,7 +1128,7 @@ class env_pybullet_kin_gen3() :
 if (__name__=="__main__"):
     env = env_pybullet_kin_gen3()
 
-    Reward_opt = 2 #0 reward using joints | 1 reward using tcp | 2 reward using tcp Rishab
+    Reward_opt = 2 #0 reward using joints | 1 reward using tcp | 2 reward using tcp Rishab 
 
     print(env.modified_parameters_df)
 
