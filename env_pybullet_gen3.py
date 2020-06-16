@@ -114,14 +114,18 @@ class env_pybullet_kin_gen3() :
         self.original_parameters_df ["force_x_one"] = self.force_x_one
 
         self.original_parameters_base_df = pd.DataFrame({})
-        self.original_parameters_base_df ["mass_base"] = self.mass_base
-        self.original_parameters_base_df ["Ixx_base"] = self.Ixx_base
-        self.original_parameters_base_df ["Iyy_base"] = self.Iyy_base
-        self.original_parameters_base_df ["Izz_base"] = self.Izz_base
+        self.original_parameters_base_df ["mass_base"] = [self.mass_base]
+        self.original_parameters_base_df ["Ixx_base"] = [self.Ixx_base]
+        self.original_parameters_base_df ["Iyy_base"] = [self.Iyy_base]
+        self.original_parameters_base_df ["Izz_base"] = [self.Izz_base]
 
 
         self.modified_parameters_df = self.original_parameters_df.copy(deep=True)
         self.modified_parameters_base_df = self.original_parameters_base_df.copy(deep=True)
+
+        print("Base parameters mod",self.modified_parameters_base_df)
+        print("Base parameters ",self.original_parameters_base_df)
+        time.sleep(10)
 
 
         #Has to exist in the data frame , and be equal to the column name
@@ -193,10 +197,11 @@ class env_pybullet_kin_gen3() :
         action_modified = []
         for parameter in self.parameters_to_modify:
             action_modified= action_modified + list(self.modified_parameters_df[parameter])
+            print("actions without base",len(action_modified))
         if (self.parameters_to_modify_base != None):
             for parameter in self.parameters_to_modify_base:
                 action_modified = action_modified + list(self.modified_parameters_base_df[parameter])
-
+            print("actions with base",len(action_modified))
         return action_modified
 
     def update_parameters_to_modify(self,parameters_to_modify):
@@ -215,8 +220,8 @@ class env_pybullet_kin_gen3() :
         if(self.no_zeros == True):
             self.no_zero_actions()
 
-    def update_parameters_to_modify_base(self,parameters_to_modify):
-        for parameter in parameters_to_modify:
+    def update_parameters_to_modify_base(self,parameters_to_modify_base):
+        for parameter in parameters_to_modify_base:
             if( parameter in list(self.original_parameters_base_df.columns) ):
                 print(parameter+ " okey")
             else:
@@ -501,7 +506,7 @@ class env_pybullet_kin_gen3() :
         """
         self.robot.modify_robot_pybullet(self.robot.robot_control_joints,\
                                         ["mass","damping","inertia"],\
-                                        )
+                                        parameters_values_link)
 
         #time.sleep(10)
         self.robot = self.Do_Experiment_from_Excel_Data (repeats=None,experiment=None,kp_list=list(self.modified_parameters_df["kp"]),\
@@ -557,8 +562,10 @@ class env_pybullet_kin_gen3() :
                 self.modified_parameters_df[self.parameters_to_modify[i]] = \
                     parameters_value[i]
         else:
-            if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints)+len(self.parameters_to_modify_base):
+            if( len(list(action)) != len(self.parameters_to_modify)*self.robot.number_robot_control_joints + len(self.parameters_to_modify_base) ):
                 print("The action (parameters) has not the right length , with the parameters chossen to modify")
+                print("Was provided ",len(list(action)), "actions(parameters)")
+                print("To modify",len(self.parameters_to_modify)*self.robot.number_robot_control_joints+len(self.parameters_to_modify_base), "parameters")
             #I abstract the data again to individual variables
             action_joints = action[:-len(self.parameters_to_modify_base)]
             action_base = action[-len(self.parameters_to_modify_base):]
@@ -621,8 +628,8 @@ class env_pybullet_kin_gen3() :
             #print("self.df_Okay_tcp",self.df_Okay_tcp)
             tcp_pos = np.array(self.robot.database_list[i].tcp_position)
             tcp_ori  = np.array(self.robot.database_list[i].tcp_orientation_e)
-            print("tcp_pos.shape",tcp_pos.shape)
-            print("tcp_ori.shape",tcp_ori.shape)
+            #print("tcp_pos.shape",tcp_pos.shape)
+            #print("tcp_ori.shape",tcp_ori.shape)
 
             df_test = pd.DataFrame({})
             df_test["pos x"] = tcp_pos [:,0]
@@ -647,7 +654,7 @@ class env_pybullet_kin_gen3() :
 
         return  reward
 
-    def step_tcp_rishabh_joints_offset(self,action):
+    def step_tcp_rishabh_joints_offset(self,action,Experiment_time=1.98):
 
         if (self.parameters_to_modify_base == None):
 
@@ -666,6 +673,10 @@ class env_pybullet_kin_gen3() :
             #I abstract the data again to individual variables
             action_joints = action[:-len(self.parameters_to_modify_base)]
             action_base = action[-len(self.parameters_to_modify_base):]
+            print(len(action_joints))
+            print(len(self.parameters_to_modify))
+            print(len(action_base))
+            print(len(self.parameters_to_modify_base))
             parameters_value = np.split(action_joints,len(self.parameters_to_modify))
             parameters_value_base = action_base
 
@@ -694,7 +705,7 @@ class env_pybullet_kin_gen3() :
                         list(self.modified_parameters_base_df["Iyy_base"])+\
                         list(self.modified_parameters_base_df["Izz_base"])
         parameters_values_base = list(self.modified_parameters_base_df["mass_base"]) +inertia_base
-        print(parameters_values_base)
+        #print(parameters_values_base)
         #print(parameters_values_link)
 
         #Start allways in the same state
@@ -713,7 +724,7 @@ class env_pybullet_kin_gen3() :
                                                             ki_list=list(self.modified_parameters_df["ki"]),\
                                                             kd_list=list(self.modified_parameters_df["kd"]),\
                                                             max_vel_list=list(self.modified_parameters_df["max_vel"]),\
-                                                    force_per_one_list=list(self.modified_parameters_df["force_x_one"]))
+                                                    force_per_one_list=list(self.modified_parameters_df["force_x_one"]),Experiment_time = Experiment_time)
 
         reward = 0
 
@@ -723,8 +734,8 @@ class env_pybullet_kin_gen3() :
             tcp_pos = np.array(self.robot.database_list[i].tcp_position)
             tcp_ori  = np.array(self.robot.database_list[i].tcp_orientation_e)
 
-            print("tcp_pos.shape",tcp_pos.shape)
-            print("tcp_ori.shape",tcp_ori.shape)
+            #print("tcp_pos.shape",tcp_pos.shape)
+            #print("tcp_ori.shape",tcp_ori.shape)
 
             df_test = pd.DataFrame({})
             df_test["pos x"] = tcp_pos [:,0]
@@ -737,7 +748,7 @@ class env_pybullet_kin_gen3() :
 
 
 
-            if(i==2):
+            if(i==0):
                 self.df_avg = df_test.copy(deep=True)
                 joints = np.array(self.robot.database_list[i].joints_angles_rad)
                 self.df_avg["joint 0"] = joints [:,0]
@@ -1000,7 +1011,7 @@ class env_pybullet_kin_gen3() :
             counter = int(Experiment_time/robot.time_step) # detemine time
             #Get actions data
 
-            print("Actions_provided",len(all_joints))
+            #print("Actions_provided",len(all_joints))
             #print("Action 50",Actions[50])
             #time.sleep(100)
 
@@ -1385,8 +1396,10 @@ class env_pybullet_kin_gen3() :
         np_ori = np.absolute(np_ori)
         np_ori = np_ori.sum()/np_ori.shape[0]
 
-        print("euc_distbytime_btw",euc_distbytime_btw)
-        print("euc_endsdist_btw",euc_endsdist_btw)
+        #print("euc_distbytime_btw",euc_distbytime_btw,\
+        #"euc_endsdist_btw",euc_endsdist_btw,\
+        #"\n")
+
         reward = -1*euc_distbytime_btw + -1*euc_endsdist_btw + -1*np_ori
 
         return reward
